@@ -80,9 +80,10 @@ export interface QuoteParts {
   text?: string
   intent: 'ask' | 'translate' | 'quote'
   question?: string
+  task?: 'paper'
 }
 
-type Explanation = { parts: QuoteParts; image?: File }
+export type Explanation = { parts: QuoteParts; image?: File; document?: File }
 let explanationTransport: ((sessionId: string, request: Explanation) => Promise<void>) | null = null
 const explanationTargets = new WeakMap<HTMLElement, string>()
 const explanationFlights = new WeakSet<HTMLElement>()
@@ -95,6 +96,9 @@ export function bindExplanationComposer(box: HTMLElement, sessionId: string) {
   return () => { if (explanationTargets.get(box) === sessionId) explanationTargets.delete(box) }
 }
 export async function explainInDsh(parts: QuoteParts, image?: File): Promise<void> {
+  return explainPreparedInDsh(async () => ({ parts, image }))
+}
+export async function explainPreparedInDsh(prepare: () => Promise<Explanation>): Promise<void> {
   const box = findComposer()
   const id = box && explanationTargets.get(box)
   if (!id || !explanationTransport) throw new Error('请先打开一个会话或选择工作区')
@@ -102,8 +106,10 @@ export async function explainInDsh(parts: QuoteParts, image?: File): Promise<voi
   explanationFlights.add(box)
   const before = quotePreview
   try {
-    await explanationTransport(id, { parts, image })
-    if (quotePreview === before) previewDshQuote(null)
+    const request = await prepare()
+    if (findComposer() !== box || explanationTargets.get(box) !== id) throw new Error('会话已切换，请在目标会话重新发送')
+    await explanationTransport(id, request)
+    if (request.parts.task !== 'paper' && quotePreview === before) previewDshQuote(null)
   } finally { explanationFlights.delete(box) }
 }
 
@@ -141,6 +147,7 @@ export async function confirmDshQuote(): Promise<boolean> {
 }
 
 export function quoteFilename(parts: QuoteParts) {
+  if (parts.task === 'paper') return `论文解读 · ${(parts.title || '当前文献').replace(/[\\/:*?"<>|\x00-\x1f]/g, '').slice(0, 60)}.txt`
   const excerpt = (parts.text || parts.title || '论文片段').replace(/[\\/:*?"<>|\x00-\x1f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 38)
   return `引用${parts.page ? ` · 第${parts.page}页` : ''} · ${excerpt}.txt`
 }

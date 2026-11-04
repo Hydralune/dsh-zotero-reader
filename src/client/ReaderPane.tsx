@@ -30,6 +30,7 @@ import {
   type ZoteroPaper,
 } from './api'
 import { Icon } from './components/Icon'
+import { PaperSummary } from './components/PaperSummary'
 import { paperSource, explainInDsh, previewDshCapture, previewDshQuote, sendCaptureToDsh, sendToDsh } from './dshComposer'
 import { QuotePreview } from './components/QuotePreview'
 import type { ReaderLocation } from './api'
@@ -555,6 +556,7 @@ export function ReaderPane() {
           ) : null}
         </div>
 
+        <PaperSummary paper={paper} onNotify={say} />
         {setup ? (
           <button className="zr-btn zr-btn-icon" aria-label="初始化配置" title="初始化配置"
             onClick={() => void getReaderSetup().then((next) => { setSetup(next); setSetupOpen(true) }).catch(() => say('读取初始化配置失败'))}>

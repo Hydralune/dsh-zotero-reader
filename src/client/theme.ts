@@ -292,6 +292,30 @@ export const CSS = String.raw`
 .zr-media-menu button:disabled{ opacity: .5; cursor: wait; }
 .zr-media-menu svg{ width: 18px; height: 18px; flex: none; }
 .zr-media-menu small{ margin-inline-start: auto; font-size: 10px; color: var(--zr-text-2); }
+.zr-summary-dialog{ width: min(620px,calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid var(--zr-border); border-radius: 18px; background: var(--zr-panel,#fff); color: var(--zr-text); box-shadow: 0 22px 80px #15202e30; }
+.zr-summary-dialog::backdrop{ background: #18202b40; }
+.zr-summary-dialog form{ display: flex; flex-direction: column; max-height: calc(100dvh - 50px); }
+.zr-summary-dialog header{ display: flex; align-items: center; gap: 12px; padding: 20px 22px; border-bottom: 1px solid var(--zr-border); }
+.zr-summary-emblem{ display: grid; place-items: center; width: 42px; height: 42px; flex: none; border: 1px solid var(--zr-border); border-radius: 12px; color: var(--zr-brand); background: var(--zr-surface); }
+.zr-summary-dialog header h2{ margin: 0; font-size: 17px; font-weight: 650; }
+.zr-summary-dialog header p,.zr-summary-shortcut-row p{ margin: 5px 0 0; font-size: 12px; color: var(--zr-text-2); }
+.zr-summary-dialog header>button{ margin-inline-start: auto; flex: none; }
+.zr-summary-body{ padding: 20px 22px; overflow: auto; }
+.zr-summary-body label{ display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; }
+.zr-summary-body label span{ color: var(--zr-text-2); font-size: 11px; font-weight: 400; margin-left: 8px; }
+.zr-summary-shortcut-row{ display: flex; align-items: center; gap: 14px; justify-content: space-between; margin-bottom: 22px; }
+.zr-summary-shortcut-row label{ margin: 0; }
+.zr-summary-shortcut-row input{ width: 144px; min-width: 100px; padding: 10px; text-align: center; border: 1px solid var(--zr-border); border-radius: 9px; background: var(--zr-surface); color: var(--zr-text); font: 12px/1.4 Consolas,monospace; }
+.zr-summary-body textarea{ box-sizing: border-box; width: 100%; min-height: 230px; height: min(38vh,340px); resize: vertical; padding: 13px 14px; border: 1px solid var(--zr-border); border-radius: 11px; background: var(--zr-surface); color: var(--zr-text); font: 13px/1.8 'Segoe UI','Microsoft YaHei',sans-serif; }
+.zr-summary-body textarea:focus,.zr-summary-shortcut-row input:focus{ outline: 2px solid var(--zr-brand); outline-offset: 2px; }
+.zr-summary-footnote{ margin: 10px 0 0; font-size: 11px; color: var(--zr-text-2); line-height: 1.6; }
+.zr-summary-error{ color: #c13f32; font-size: 12px; }
+.zr-summary-dialog footer{ display: flex; align-items: center; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--zr-border); }
+.zr-summary-dialog footer span{ flex: 1; }
+.zr-summary-save{ background: var(--zr-brand); border-color: var(--zr-brand); color: #fff; }
+.zr-paper-summary[aria-busy="true"] svg{ animation: zr-summary-spin 1.4s linear infinite; }
+@keyframes zr-summary-spin{ to{ transform: rotate(360deg); } }
+@media(prefers-reduced-motion:reduce){ .zr-paper-summary[aria-busy="true"] svg{ animation: none; } }
 /* Claude-style's synthetic hero placeholder is pinned to the card's top even
    when attachments occupy that space. Hide hints while a reference is present;
    leave the editor's accessible label and the user's draft untouched. */

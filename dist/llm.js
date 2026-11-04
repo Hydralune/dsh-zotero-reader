@@ -93,6 +93,9 @@ async function* run(ctx, options, messages) {
                 throw new LlmUnavailable(chunk.reason?.failure?.message || '模型返回错误');
             if (kind === 'aborted')
                 throw new LlmUnavailable('已中止');
+            if (kind && ['length', 'max-tokens', 'max_tokens', 'max-output-tokens'].includes(kind)) {
+                throw new LlmUnavailable('模型输出达到长度上限，译文已截断');
+            }
         }
     }
 }

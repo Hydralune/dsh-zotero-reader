@@ -47,7 +47,7 @@
     "build:client": "node scripts/build-client.mjs",
     "build": "npm run clean && npm run build:host && npm run build:client",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json",
-    "test": "node test/selection.test.mjs && node test/notes.test.mjs && node test/llm.test.mjs && node test/mineru.test.mjs && node test/richtext.test.mjs && node test/composer.test.mjs",
+    "test": "node test/selection.test.mjs && node test/notes.test.mjs && node test/llm.test.mjs && node test/mineru.test.mjs && node test/richtext.test.mjs && node test/composer.test.mjs && node test/page-translation.test.mjs",
     "test:markdown": "node test/markdown.test.mjs"
   },
   "keywords": [

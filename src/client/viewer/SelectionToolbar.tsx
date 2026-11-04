@@ -7,6 +7,7 @@ import type { MarkKind } from '../api'
 
 
 import { Icon } from '../components/Icon'
+import { isScrollbarInteraction, type SelectionAnchor } from './selection-anchor'
 
 export const MARK_COLORS = [
   '#ffeb3b',
@@ -21,7 +22,8 @@ export const MARK_COLORS = [
 ]
 
 export interface SelectionToolbarProps {
-  anchor: { x: number; y: number; bottom: number }
+  anchor: SelectionAnchor
+  getAnchor?: () => SelectionAnchor | null
   onExplain: () => void | Promise<void>
   onTranslate: () => void
   onMark: (kind: MarkKind, color: string) => void
@@ -36,6 +38,7 @@ const PALETTE_HEIGHT = 40
 
 export function SelectionToolbar({
   anchor,
+  getAnchor,
   onExplain,
   onTranslate,
   onMark,
@@ -47,20 +50,39 @@ export function SelectionToolbar({
   const [explaining, setExplaining] = useState(false)
   const [color, setColor] = useState(MARK_COLORS[0])
   const ref = useRef<HTMLDivElement | null>(null)
+  const [position, setPosition] = useState<SelectionAnchor | null>(anchor)
+  const locate = useRef(getAnchor)
+  locate.current = getAnchor
+
+  useEffect(() => {
+    let frame = 0
+    const update = () => {
+      if (frame) return
+      frame = requestAnimationFrame(() => { frame = 0; setPosition(locate.current ? locate.current() : anchor) })
+    }
+    update()
+    document.addEventListener('scroll', update, true)
+    window.addEventListener('resize', update)
+    return () => { document.removeEventListener('scroll', update, true); window.removeEventListener('resize', update); if (frame) cancelAnimationFrame(frame) }
+  }, [anchor, getAnchor])
 
   useEffect(() => {
     const onDown = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) onClose()
+      const root = (event.target as Element)?.closest?.<HTMLElement>('.zr-textscroll,.zr-pdf-scroll')
+      if (root && isScrollbarInteraction(event, root)) return
+      if (!ref.current?.contains(event.target as Node)) onClose()
     }
     window.addEventListener('mousedown', onDown, true)
     return () => window.removeEventListener('mousedown', onDown, true)
   }, [onClose])
 
   const totalHeight = BAR_HEIGHT + (palette ? PALETTE_HEIGHT : 0)
-  const left = Math.min(Math.max(8, anchor.x - WIDTH / 2), window.innerWidth - WIDTH - 8)
+  if (!position) return null
+  const viewport = position.viewport ?? { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight }
+  const left = Math.max(viewport.left + 8, Math.min(position.x - WIDTH / 2, viewport.right - WIDTH - 8))
   // 贴选区**上方**（tippy placement:'top' 的效果）；上方放不下才翻到下方。
-  let top = anchor.y - totalHeight - 8
-  if (top < 8) top = Math.min(anchor.bottom + 8, window.innerHeight - totalHeight - 8)
+  let top = position.y - totalHeight - 8
+  if (top < viewport.top + 8) top = Math.min(position.bottom + 8, viewport.bottom - totalHeight - 8)
 
   return (
     <div

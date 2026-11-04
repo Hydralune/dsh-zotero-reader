@@ -18,6 +18,7 @@ import { HighlightLayer } from './HighlightLayer'
 import type { ReaderLocation } from '../api'
 import type { PageSelection } from './selection'
 import type { NoteMark } from '../api'
+import { isScrollbarInteraction, visibleSelectionAnchor, type SelectionAnchor } from './selection-anchor'
 
 export interface PdfViewerHandle {
   jumpTo(page: number, y?: number): void
@@ -36,7 +37,7 @@ export interface PdfViewerHandle {
 export interface PdfCapture {
   page: number
   image: Promise<Blob>
-  anchor: { x: number; y: number; bottom: number }
+  getAnchor: () => SelectionAnchor | null
 }
 
 interface CapturePoint { x: number; y: number }
@@ -446,6 +447,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
   }
   const startCapture = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!captureMode || event.button !== 0 || !event.isPrimary || !(event.target instanceof Element)) return
+    if (scrollRef.current && isScrollbarInteraction(event, scrollRef.current)) return
     clearCapture()
     const box = event.target.closest<HTMLElement>('.zr-page-box')
     if (!box) return
@@ -489,10 +491,13 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
     )
     void image.catch(() => {})
     setRegion(final)
-    onCapture?.({ page: final.page, image, anchor: {
-      x: box.left + (left + width / 2) * box.width,
-      y: box.top + top * box.height,
-      bottom: box.top + (top + height) * box.height,
+    onCapture?.({ page: final.page, image, getAnchor: () => {
+      const root = scrollRef.current
+      const page = boxRefs.current.get(final.page)
+      if (!root || !page) return null
+      const rect = page.getBoundingClientRect()
+      return visibleSelectionAnchor([{ left: rect.left + left * rect.width, top: rect.top + top * rect.height,
+        right: rect.left + (left + width) * rect.width, bottom: rect.top + (top + height) * rect.height }], root.getBoundingClientRect())
     } })
   }
 
@@ -510,7 +515,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
       onPointerDown={startCapture} onPointerMove={moveCapture} onPointerUp={finishCapture}
       onPointerCancel={clearCapture} onLostPointerCapture={(event) => {
         if (drag.current?.pointer === event.pointerId) clearCapture()
-      }} onScroll={() => { if (captureMode && !drag.current && region) clearCapture() }}
+      }}
       onClick={captureMode ? undefined : clickMark} onDoubleClick={(event) => {
       if (captureMode) return
       const target = event.target as HTMLElement

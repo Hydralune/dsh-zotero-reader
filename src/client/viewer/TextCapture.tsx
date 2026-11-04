@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type PointerEvent, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent, type RefObject } from 'react'
 import html2canvas from 'html2canvas'
 import type { ZoteroPaper } from '../api'
 import { explainInDsh, previewDshCapture, previewDshQuote, sendCaptureToDsh } from '../dshComposer'
 import { Icon } from '../components/Icon'
+import { CaptureToolbar } from './CaptureToolbar'
+import { visibleSelectionAnchor } from './selection-anchor'
 
 type Point = { x: number; y: number }
 type Region = { start: Point; end: Point }
@@ -10,33 +12,62 @@ const bounds = ({ start, end }: Region) => ({ left: Math.min(start.x, end.x), to
   width: Math.abs(end.x - start.x), height: Math.abs(end.y - start.y) })
 
 export async function captureTextRegion(root: HTMLElement, region: ReturnType<typeof bounds>): Promise<Blob> {
-  await document.fonts.ready
   const rect = root.getBoundingClientRect()
+  const scrollX = root.scrollLeft, scrollY = root.scrollTop
+  const ancestors = new Set<Element>()
+  for (let element: Element | null = root; element; element = element.parentElement) ancestors.add(element)
+  // html2canvas normally clones the entire chat and every paper page, even for a tiny crop.
+  // Keep offscreen pages/blocks as empty, measured shells so scroll positions and wrapping stay exact.
+  const shells = new Set<Element>()
+  const placeholders: Array<{ page: string; id: string; width: number; height: number }> = []
+  const selection = { left: rect.left + region.left, top: rect.top + region.top,
+    right: rect.left + region.left + region.width, bottom: rect.top + region.top + region.height }
+  const outside = (element: HTMLElement) => {
+    const box = element.getBoundingClientRect()
+    if (box.bottom > selection.top && box.top < selection.bottom && box.right > selection.left && box.left < selection.right) return false
+    shells.add(element)
+    placeholders.push({ page: element.dataset.textPage ?? '', id: element.id, width: box.width, height: box.height })
+    return true
+  }
+  for (const page of root.querySelectorAll<HTMLElement>('[data-text-page]')) {
+    if (!outside(page)) page.querySelectorAll<HTMLElement>('.zr-txt-pair[id]').forEach(outside)
+  }
   const scale = Math.min(2, window.devicePixelRatio || 1)
   const canvas = await html2canvas(root, {
     logging: false, backgroundColor: '#ffffff', scale,
-    width: rect.width, height: rect.height,
-    ignoreElements: element => element.hasAttribute('data-html2canvas-ignore'),
+    x: region.left, y: region.top, width: region.width, height: region.height,
+    ignoreElements: element => element.hasAttribute('data-html2canvas-ignore') ||
+      shells.has(element.parentElement!) ||
+      (!ancestors.has(element) && !root.contains(element) && element !== document.head && !document.head.contains(element)),
+    onclone: (document, clone) => {
+      // Omitting unrelated UI must not change the reader's width or position in the clone.
+      Object.assign(clone.style, { position: 'fixed', left: `${rect.left}px`, top: `${rect.top}px`,
+        width: `${rect.width}px`, height: `${rect.height}px`, boxSizing: 'border-box', margin: '0' })
+      for (const item of placeholders) {
+        const shell = item.page ? clone.querySelector<HTMLElement>(`[data-text-page="${item.page}"]`) : document.getElementById(item.id)
+        if (shell) Object.assign(shell.style, { width: `${item.width}px`, height: `${item.height}px`,
+          minHeight: `${item.height}px`, boxSizing: 'border-box', visibility: 'hidden' })
+      }
+      clone.scrollLeft = scrollX; clone.scrollTop = scrollY
+    },
   })
-  const crop = document.createElement('canvas')
-  crop.width = Math.max(1, Math.round(region.width * scale))
-  crop.height = Math.max(1, Math.round(region.height * scale))
-  const context = crop.getContext('2d')
-  if (!context) throw new Error('无法创建截图')
-  context.drawImage(canvas, region.left * scale, region.top * scale, region.width * scale, region.height * scale,
-    0, 0, crop.width, crop.height)
-  return new Promise((resolve, reject) => crop.toBlob(blob => blob ? resolve(blob) : reject(new Error('截图生成失败')), 'image/png'))
+  return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('截图生成失败')), 'image/png'))
 }
 
 export function TextCapture({ root, paper, onNotify }: {
   root: RefObject<HTMLDivElement | null>; paper: ZoteroPaper; onNotify: (message: string) => void
 }) {
-  const [viewport, setViewport] = useState<DOMRect | null>(null)
+  const [geometry, setGeometry] = useState<{ viewport: DOMRect; x: number; y: number } | null>(null)
   const [region, setRegion] = useState<Region | null>(null)
   const [image, setImage] = useState<{ blob: Promise<Blob>; page: number } | null>(null)
   const [busy, setBusy] = useState(false)
+  const overlay = useRef<HTMLDivElement | null>(null)
   const drag = useRef<{ id: number; start: Point } | null>(null)
-  const clear = () => { drag.current = null; setRegion(null); setImage(null) }
+  const dragFrame = useRef(0)
+  const pendingRegion = useRef<Region | null>(null)
+  const stopDragFrame = () => { cancelAnimationFrame(dragFrame.current); dragFrame.current = 0; pendingRegion.current = null }
+  const clear = () => { stopDragFrame(); drag.current = null; setRegion(null); setImage(null) }
+  useEffect(() => () => stopDragFrame(), [])
   useEffect(() => {
     if (image) previewDshCapture({ title: paper.title, page: image.page, intent: 'quote' }, image.blob)
     return () => previewDshQuote(null)
@@ -44,7 +75,11 @@ export function TextCapture({ root, paper, onNotify }: {
   useEffect(() => {
     const element = root.current
     if (!element) return
-    const measure = () => { setViewport(element.getBoundingClientRect()); clear() }
+    let frame = 0
+    const measure = () => {
+      if (frame) return
+      frame = requestAnimationFrame(() => { frame = 0; setGeometry({ viewport: element.getBoundingClientRect(), x: element.scrollLeft, y: element.scrollTop }) })
+    }
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') clear() }
     const observer = new ResizeObserver(measure)
     observer.observe(element)
@@ -52,12 +87,34 @@ export function TextCapture({ root, paper, onNotify }: {
     element.addEventListener('scroll', measure)
     window.addEventListener('resize', measure)
     document.addEventListener('keydown', escape)
-    return () => { observer.disconnect(); element.removeEventListener('scroll', measure); window.removeEventListener('resize', measure); document.removeEventListener('keydown', escape) }
+    return () => { if (frame) cancelAnimationFrame(frame); observer.disconnect(); element.removeEventListener('scroll', measure); window.removeEventListener('resize', measure); document.removeEventListener('keydown', escape) }
   }, [root, paper.attachKey, paper.file])
-  if (!viewport) return null
+  const ready = !!geometry
+  useEffect(() => {
+    const element = overlay.current
+    if (!element) return
+    const wheel = (event: WheelEvent) => {
+      event.preventDefault()
+      if (!root.current || drag.current) return
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? root.current.clientHeight : 1
+      root.current.scrollTop += event.deltaY * unit; root.current.scrollLeft += event.deltaX * unit
+    }
+    // React's passive wheel listener cannot cancel the additional scroll of the outer chat.
+    element.addEventListener('wheel', wheel, { passive: false })
+    return () => element.removeEventListener('wheel', wheel)
+  }, [root, ready])
+  const getAnchor = useCallback(() => {
+    const element = root.current
+    if (!element || !region) return null
+    const content = bounds(region), rect = element.getBoundingClientRect()
+    const left = rect.left + content.left - element.scrollLeft, top = rect.top + content.top - element.scrollTop
+    return visibleSelectionAnchor([{ left, top, right: left + content.width, bottom: top + content.height }], rect)
+  }, [root, region])
+  if (!geometry) return null
+  const { viewport } = geometry
   const point = (event: PointerEvent): Point => ({
-    x: Math.max(0, Math.min(viewport.width, event.clientX - viewport.left)),
-    y: Math.max(0, Math.min(viewport.height, event.clientY - viewport.top)),
+    x: Math.max(0, Math.min(viewport.width, event.clientX - viewport.left)) + (root.current?.scrollLeft ?? 0),
+    y: Math.max(0, Math.min(viewport.height, event.clientY - viewport.top)) + (root.current?.scrollTop ?? 0),
   })
   const filename = `${paper.file.replace(/\.pdf$/i, '')}-text-p${image?.page ?? 1}.png`
   const act = async (action: 'ask' | 'explain' | 'copy' | 'download') => {
@@ -84,11 +141,12 @@ export function TextCapture({ root, paper, onNotify }: {
     } catch (error) { onNotify(`截图失败：${(error as Error).message}`) }
     finally { setBusy(false) }
   }
-  const box = region ? bounds(region) : null
+  const contentBox = region ? bounds(region) : null
+  const box = contentBox ? { ...contentBox, left: contentBox.left - geometry.x, top: contentBox.top - geometry.y } : null
   return <>
-    <div className="zr-text-capture-overlay" data-html2canvas-ignore="true" aria-label="拖动框选文本截图"
-      style={{ left: viewport.left, top: viewport.top, width: viewport.width, height: viewport.height }}
-      onWheel={event => { if (root.current && !drag.current) root.current.scrollTop += event.deltaY }}
+    <div ref={overlay} className="zr-text-capture-overlay" data-html2canvas-ignore="true" aria-label="拖动框选文本截图"
+      style={{ left: viewport.left, top: viewport.top, width: root.current?.clientWidth ?? viewport.width,
+        height: root.current?.clientHeight ?? viewport.height, overflow: 'hidden' }}
       onPointerDown={event => {
         if (event.button !== 0 || !event.isPrimary || busy) return
         event.preventDefault(); clear()
@@ -98,15 +156,22 @@ export function TextCapture({ root, paper, onNotify }: {
         event.currentTarget.setPointerCapture(event.pointerId)
       }}
       onPointerMove={event => {
-        if (drag.current?.id === event.pointerId) setRegion({ start: drag.current.start, end: point(event) })
+        if (drag.current?.id !== event.pointerId) return
+        pendingRegion.current = { start: drag.current.start, end: point(event) }
+        if (!dragFrame.current) dragFrame.current = requestAnimationFrame(() => {
+          dragFrame.current = 0
+          if (pendingRegion.current) setRegion(pendingRegion.current)
+        })
       }}
       onPointerCancel={clear}
       onPointerUp={event => {
         const active = drag.current
         if (active?.id !== event.pointerId || !root.current) return
+        stopDragFrame()
         drag.current = null
         const final = { start: active.start, end: point(event) }
-        const box = bounds(final)
+        const content = bounds(final)
+        const box = { ...content, left: content.left - root.current.scrollLeft, top: content.top - root.current.scrollTop }
         if (box.width < 5 || box.height < 5) { clear(); return }
         const article = [...root.current.querySelectorAll<HTMLElement>('[data-text-page]')].find(element => {
           const rect = element.getBoundingClientRect()
@@ -119,14 +184,12 @@ export function TextCapture({ root, paper, onNotify }: {
       }}>
       {box ? <div className="zr-capture-region" style={box} /> : null}
     </div>
-    {image && box ? <div className="zr-selbar" data-html2canvas-ignore="true" aria-busy={busy}
-      style={{ left: Math.max(8, Math.min(viewport.left + box.left, window.innerWidth - 190)), top: Math.max(8, viewport.top + box.top - 45) }}
-      onMouseDown={event => event.preventDefault()}>
+    {image && contentBox ? <CaptureToolbar busy={busy} getAnchor={getAnchor}>
       <button className="zr-selbar-btn" title="解释：直接发送给 AI" aria-label="解释截图" disabled={busy} onClick={() => void act('explain')}><Icon name="sparkle" /></button>
       <button className="zr-selbar-btn" title="引用截图" disabled={busy} onClick={() => void act('ask')}><Icon name="quote" /></button>
       <button className="zr-selbar-btn" title="复制截图" disabled={busy} onClick={() => void act('copy')}><Icon name="copy" /></button>
       <button className="zr-selbar-btn" title="下载截图" disabled={busy} onClick={() => void act('download')}><Icon name="download" /></button>
       <button className="zr-selbar-btn" title="取消截图" onClick={clear}><Icon name="close" /></button>
-    </div> : null}
+    </CaptureToolbar> : null}
   </>
 }

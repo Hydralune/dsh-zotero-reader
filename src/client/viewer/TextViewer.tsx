@@ -22,6 +22,7 @@ import { TextCapture } from './TextCapture'
 import { SelectionToolbar } from './SelectionToolbar'
 import { MarkPopover } from './MarkPopover'
 import { anchorRange, selectedTextAnchors, textHighlightAPI } from './text-highlights'
+import { isScrollbarInteraction, visibleSelectionAnchor } from './selection-anchor'
 
 /* ---------------- 块 ---------------- */
 
@@ -198,6 +199,7 @@ export function TextViewer({
   const locationTimer = useRef(0)
   useEffect(() => () => window.clearTimeout(locationTimer.current), [])
   const [picked, setPicked] = useState<{ text: string; page: number; x: number; y: number; bottom: number; anchors: TextAnchor[] } | null>(null)
+  const pickedSource = useRef('')
   const [captureMode, setCaptureMode] = useState(false)
   const [mediaMenu, setMediaMenu] = useState<{ x: number; y: number; page: number; canvas: HTMLCanvasElement } | null>(null)
   const [textMarks, setTextMarks] = useState<TextMark[]>([])
@@ -235,12 +237,13 @@ export function TextViewer({
     previewDshQuote(null)
   }, [paper.attachKey, paper.file])
 
-  const readPicked = () => {
+  const readPicked = (cancelEmpty = false) => {
     if (captureMode) return
     const selection = window.getSelection()
     if (!selection?.rangeCount || selection.isCollapsed || !scroll.current?.contains(selection.anchorNode) ||
         !scroll.current.contains(selection.focusNode)) {
       setPicked(null)
+      if (cancelEmpty) previewDshQuote(null)
       return
     }
     const range = selection.getRangeAt(0)
@@ -248,15 +251,18 @@ export function TextViewer({
     const rect = range.getBoundingClientRect()
     const pageElement = range.startContainer.parentElement?.closest<HTMLElement>('[data-text-page]')
     const text = selection.toString().trim()
+    if (cancelEmpty && (!text || !anchors.length)) previewDshQuote(null)
+    if (text && anchors.length) pickedSource.current = `${paper.attachKey}/${paper.file}`
     if (text && anchors.length) setMarkPopup(null)
     setPicked(text && anchors.length ? { text, page: Number(pageElement?.dataset.textPage) || current || 1,
       x: rect.left + rect.width / 2, y: rect.top, bottom: rect.bottom, anchors } : null)
   }
 
   useEffect(() => {
-    previewDshQuote(picked ? { title: paper.title, page: picked.page, text: picked.text, intent: 'quote' } : null)
-    return () => previewDshQuote(null)
+    if (picked && pickedSource.current === `${paper.attachKey}/${paper.file}`) previewDshQuote({ title: paper.title, page: picked.page, text: picked.text, intent: 'quote' })
   }, [picked, paper])
+
+  useEffect(() => () => previewDshQuote(null), [])
 
   useEffect(() => {
     let frame = 0
@@ -265,7 +271,7 @@ export function TextViewer({
       frame = requestAnimationFrame(() => {
         frame = 0
         const selection = window.getSelection()
-        if (!selection || selection.isCollapsed) { setPicked(null); previewDshQuote(null); return }
+        if (!selection || selection.isCollapsed) return
         if (captureMode || !scroll.current?.contains(selection.anchorNode) || !scroll.current.contains(selection.focusNode)) return
         const element = selection.anchorNode?.parentElement?.closest<HTMLElement>('[data-text-page]')
         previewDshQuote({ title: paper.title, page: Number(element?.dataset.textPage) || current || 1, text: selection.toString().trim(), intent: 'quote' })
@@ -644,7 +650,7 @@ export function TextViewer({
             setPicked(null)
             setMediaMenu({ x: event.clientX, y: event.clientY, canvas, page: Number(canvas.closest<HTMLElement>('[data-text-page]')?.dataset.textPage) || current || 1 })
           }}
-          onScroll={() => { setPicked(null); setMarkPopup(null) }}
+          onScroll={() => { setMarkPopup(null) }}
           onClick={(event) => {
             if (!window.getSelection()?.isCollapsed) return
             const target = event.target as HTMLElement
@@ -658,9 +664,13 @@ export function TextViewer({
             }))
             setMarkPopup(hit ? { mark: hit, x: event.clientX, y: event.clientY } : null)
           }}
-          onMouseUp={() => { window.clearTimeout(selectionTask.current); selectionTask.current = window.setTimeout(readPicked, 0) }}
+          onMouseUp={event => {
+            if (event.button !== 0) return
+            if (scroll.current && isScrollbarInteraction(event, scroll.current)) return
+            window.clearTimeout(selectionTask.current); selectionTask.current = window.setTimeout(() => readPicked(true), 0)
+          }}
           onKeyUp={(event) => {
-            if (event.key === 'Escape') { setPicked(null); setTranslation(null); setMarkPopup(null); return }
+            if (event.key === 'Escape') { setPicked(null); previewDshQuote(null); setTranslation(null); setMarkPopup(null); return }
             if (event.shiftKey || event.ctrlKey || event.metaKey) readPicked()
           }}>
           {!doc ? (
@@ -711,6 +721,12 @@ export function TextViewer({
       {mediaMenu ? <MediaMenu {...mediaMenu} paper={paper} onClose={() => setMediaMenu(null)} onNotify={onNotify} /> : null}
       {picked && !captureMode ? (
         <SelectionToolbar anchor={{ x: picked.x, y: picked.y, bottom: picked.bottom }}
+          getAnchor={() => {
+            const root = scroll.current
+            if (!root) return null
+            const rects = picked.anchors.flatMap(anchor => [...(anchorRange(root, anchor)?.getClientRects() ?? [])])
+            return visibleSelectionAnchor(rects, root.getBoundingClientRect())
+          }}
           onExplain={async () => {
             try { await explainInDsh({ title: paper.title, page: picked.page, text: picked.text, intent: 'ask' }); setPicked(null); window.getSelection()?.removeAllRanges(); onNotify('解释请求已发送') }
             catch (error) { onNotify((error as Error).message) }

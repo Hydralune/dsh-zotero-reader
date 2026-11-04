@@ -43,6 +43,8 @@ import { TranslateMenu } from './viewer/TranslateMenu'
 import { MarkPopover } from './viewer/MarkPopover'
 import { SelectionToolbar, MARK_COLORS } from './viewer/SelectionToolbar'
 import { clearSelection, readSelection, type SelectionSnapshot } from './viewer/selection'
+import { isScrollbarInteraction, visibleSelectionAnchor } from './viewer/selection-anchor'
+import { CaptureToolbar } from './viewer/CaptureToolbar'
 
 type Drawer = 'library' | 'outline' | 'notes' | 'thumbs' | null
 
@@ -108,6 +110,7 @@ export function ReaderPane() {
   const [activeMarkId, setActiveMarkId] = useState<string | null>(null)
   const [markPop, setMarkPop] = useState<{ mark: NoteMark; x: number; y: number } | null>(null)
   const [preview, setPreview] = useState<SelectionSnapshot | null>(null)
+  const pdfSelectionSource = useRef('')
   const [sel, setSel] = useState<SelectionSnapshot | null>(null)
   const [translateCard, setTranslateCard] = useState<{ x: number; y: number; text: string; loading: boolean } | null>(null)
   const [bilingual, setBilingual] = useState(false)
@@ -307,32 +310,38 @@ export function ReaderPane() {
   //   · 点在工具条自己身上不算（否则点按钮的瞬间就被清掉）。
   useEffect(() => {
     setPreview(null)
+    setSel(null)
     if (view !== 'pdf' || !paper || captureMode) return
     let previewFrame = 0
     let timer = 0
     let raf = 0
     let pointer: { x: number; y: number } | null = null
 
-    const measure = () => {
+    const measure = (cancelEmpty = false) => {
       raf = 0
       const root = viewerRef.current?.scrollElement() ?? null
       const snapshot = readSelection(root, pointer)
+      if (!snapshot && cancelEmpty) previewDshQuote(null)
+      if (snapshot) pdfSelectionSource.current = `${paper.attachKey}/${paper.file}`
       setPreview(snapshot)
       setSel(snapshot)
     }
-    const schedule = () => {
+    const schedule = (cancelEmpty = false) => {
       if (timer) window.clearTimeout(timer)
       if (raf) cancelAnimationFrame(raf)
       timer = window.setTimeout(() => {
         timer = 0
-        raf = requestAnimationFrame(measure)
+        raf = requestAnimationFrame(() => measure(cancelEmpty))
       }, 16)
     }
     const onMouseUp = (event: MouseEvent) => {
+      if (event.button !== 0) return
       const target = event.target as Element | null
       if (target?.closest?.('.zr-selbar')) return
+      const root = viewerRef.current?.scrollElement()
+      if (!root || !root.contains(target) || isScrollbarInteraction(event, root)) return
       pointer = { x: event.clientX, y: event.clientY }
-      schedule()
+      schedule(true)
     }
     const onKeyUp = (event: KeyboardEvent) => {
       // 键盘扩选（Shift+方向键 / Ctrl+A）没有鼠标点，用最后一个 rect 当锚点
@@ -344,12 +353,9 @@ export function ReaderPane() {
       if (previewFrame) cancelAnimationFrame(previewFrame)
       previewFrame = requestAnimationFrame(() => {
         previewFrame = 0
-        setPreview(readSelection(viewerRef.current?.scrollElement() ?? null))
+        const snapshot = readSelection(viewerRef.current?.scrollElement() ?? null)
+        if (snapshot) { pdfSelectionSource.current = `${paper.attachKey}/${paper.file}`; setPreview(snapshot) }
       })
-      const selection = window.getSelection()
-      if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-        setSel((prev) => (prev ? null : prev))
-      }
     }
 
     document.addEventListener('mouseup', onMouseUp)
@@ -364,6 +370,8 @@ export function ReaderPane() {
       if (raf) cancelAnimationFrame(raf)
     }
   }, [view, paper, captureMode])
+
+  useEffect(() => { if (!sel) setPreview(null) }, [sel])
 
   const addMark = useCallback(
     async (kind: MarkKind, color: string) => {
@@ -423,9 +431,10 @@ export function ReaderPane() {
 
   useEffect(() => {
     if (view !== 'pdf' || captureMode) return
-    previewDshQuote(paper && preview?.text ? { title: paper.title, page: preview.pages[0]?.page, text: preview.text, intent: 'quote' } : null)
-    return () => previewDshQuote(null)
+    if (paper && preview?.text && pdfSelectionSource.current === `${paper.attachKey}/${paper.file}`) previewDshQuote({ title: paper.title, page: preview.pages[0]?.page, text: preview.text, intent: 'quote' })
   }, [paper, view, preview, captureMode])
+
+  useEffect(() => () => previewDshQuote(null), [paper?.attachKey, paper?.file, view])
 
   useEffect(() => {
     if (view !== 'pdf' || !captureMode) return
@@ -458,7 +467,8 @@ export function ReaderPane() {
           setFindHits([])
           viewerRef.current?.clearSearch()
         }
-        if (sel) setSel(null)
+        if (sel) { setSel(null); setPreview(null) }
+        previewDshQuote(null)
         return
       }
       if (typing || !paper || view !== 'pdf') return
@@ -778,7 +788,7 @@ export function ReaderPane() {
             url={url}
             scale={scale}
             marks={marks}
-            selection={captureMode ? undefined : preview?.pages}
+            selection={captureMode ? undefined : (preview ?? sel)?.pages}
             captureMode={captureMode}
             onCapture={setCapture}
             location={variant ? null : pdfLocation}
@@ -921,10 +931,7 @@ export function ReaderPane() {
       </div>
 
       {view === 'pdf' && captureMode && capture ? (
-        <div className="zr-selbar zr-selection-tools" style={{
-          left: Math.max(8, Math.min(capture.anchor.x - 72, window.innerWidth - 156)),
-          top: Math.max(8, capture.anchor.y > 49 ? capture.anchor.y - 46 : Math.min(capture.anchor.bottom + 7, window.innerHeight - 46)),
-        }} onMouseDown={(event) => event.preventDefault()}>
+        <CaptureToolbar getAnchor={capture.getAnchor}>
           <div className="zr-selbar-row">
             <button className="zr-selbar-btn" title="解释：直接发送给 AI" aria-label="解释截图" onClick={() => {
               void (async () => {
@@ -939,13 +946,25 @@ export function ReaderPane() {
             <button className="zr-selbar-btn" title="下载 PNG" aria-label="下载 PNG"
               onClick={() => void downloadCapture(capture).catch(() => say('截图下载失败'))}><Icon name="download" /></button>
           </div>
-        </div>
+        </CaptureToolbar>
       ) : null}
 
       {/* 划词工具条 */}
       {sel && view === 'pdf' && !captureMode ? (
         <SelectionToolbar
           anchor={sel.anchor}
+          getAnchor={() => {
+            const root = viewerRef.current?.scrollElement()
+            if (!root) return null
+            const rects = sel.pages.flatMap(selection => {
+              const box = root.querySelector<HTMLElement>(`.zr-page-box[data-page="${selection.page}"]`)
+              if (!box) return []
+              const basis = (box.querySelector('canvas') ?? box).getBoundingClientRect()
+              return selection.rects.map(rect => ({ left: basis.left + rect.x * basis.width, top: basis.top + rect.y * basis.height,
+                right: basis.left + (rect.x + rect.w) * basis.width, bottom: basis.top + (rect.y + rect.h) * basis.height }))
+            })
+            return visibleSelectionAnchor(rects, root.getBoundingClientRect())
+          }}
           onExplain={async () => {
             if (!paper) return
             try { await explainInDsh({ title: paper.title, page: sel.pages[0].page, text: sel.text, intent: 'ask' }); say('解释请求已发送'); setSel(null); clearSelection() }

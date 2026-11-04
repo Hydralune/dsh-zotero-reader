@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>zr reader preview</title>
+    <!--
+      真组件 + 假后端。用来在没有 DSH 登录态时检查整块面板。
+      启动：node scripts/serve-dev.mjs 8792 → 打开 /test/preview.html
+      test/preview-entry.tsx 提供 /lr-reader/api/* 的内存实现，serve-dev 提供
+      /lr-reader/vendor/* 与 /lr-reader/api/zotero/file（样例 PDF）。
+    -->
+    <style>
+      html, body { margin: 0; height: 100%; background: #eceef1; }
+      /* 模拟 DSH 右侧栏宽度 */
+      #root {
+        height: 100%; width: var(--pane-w, 460px); margin-left: auto;
+        background: #fff; border-left: 1px solid rgba(0,0,0,.1);
+        box-shadow: -8px 0 24px rgba(15,23,42,.08);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="/lib/_preview.js"></script>
+  </body>
+</html>

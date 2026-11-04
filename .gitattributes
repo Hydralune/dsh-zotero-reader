@@ -1,0 +1,7 @@
+* text=auto eol=lf
+*.woff2 binary
+*.bcmap binary
+*.png binary
+*.jpg binary
+*.pdf binary
+vendor/LICENSE-* -whitespace

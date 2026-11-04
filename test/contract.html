@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>zr plugin contract</title>
+    <!--
+      插件契约测试：跑真实 apply()，用假 ctx 抓注册内容，再按 DSH 侧栏结构真的点一下图标。
+      结果在 window.__contractResult。启动：node scripts/serve-dev.mjs 8792 → /test/contract.html
+    -->
+    <style>
+      html, body { margin: 0; background: #f6f7f9; font: 13px/1.6 system-ui, sans-serif; }
+      #root { padding: 16px; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="/lib/_contract.js"></script>
+  </body>
+</html>

@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>zr viewer harness</title>
+    <!--
+      渲染内核的独立验证页（不依赖 DSH）。
+      用法：在仓库根目录起静态服务，打开
+        http://127.0.0.1:8791/test/harness.html?pdf=/test/sample.pdf&scale=1.2&pages=2
+      它复刻 PdfViewer 的关键调用（getViewport → canvas → TextLayer）并输出断言结果，
+      用来在没有 GUI 登录态时验证 pdf.js 与文本层样式是否真的对得上。
+    -->
+    <style>
+      html, body { margin: 0; background: #eceef1; font: 13px/1.5 system-ui, sans-serif; }
+      #status { position: sticky; top: 0; z-index: 9; background: #111827; color: #fff; padding: 8px 12px; font-family: ui-monospace, monospace; font-size: 11.5px; white-space: pre-wrap; }
+      #stack { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 12px; }
+      .zr-page-box { position: relative; background: #fff; overflow: hidden; box-shadow: 0 1px 2px rgba(15,23,42,.14), 0 8px 22px rgba(15,23,42,.07); }
+      .zr-page-canvas { display: block; }
+      /* 与 src/client/theme.ts 中的文本层规则一致 */
+      .zr-page-box .textLayer{
+        --scale-round-x: 1px; --scale-round-y: 1px;
+        --min-font-size: 1; --min-font-size-inv: calc(1 / var(--min-font-size));
+        --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+        position: absolute; inset: 0; z-index: 0; overflow: clip;
+        text-align: initial; line-height: 1; letter-spacing: normal; word-spacing: normal;
+        opacity: 1; transform-origin: 0 0; caret-color: CanvasText;
+        -webkit-text-size-adjust: none; text-size-adjust: none; forced-color-adjust: none;
+      }
+      .zr-page-box .textLayer :is(span, br){
+        position: absolute; color: transparent; white-space: pre; cursor: text;
+        transform-origin: 0 0; user-select: text;
+      }
+      .zr-page-box .textLayer > :not(.markedContent),
+      .zr-page-box .textLayer .markedContent span:not(.markedContent){
+        z-index: 1; --font-height: 0; --scale-x: 1; --rotate: 0deg;
+        font-size: calc(var(--text-scale-factor) * var(--font-height));
+        transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+      }
+      .zr-page-box .textLayer .markedContent{ display: contents; }
+    </style>
+  </head>
+  <body>
+    <div id="status">booting…</div>
+    <div id="stack"></div>
+    <script type="module">
+      const params = new URLSearchParams(location.search)
+      const pdfUrl = params.get('pdf') || '/test/sample.pdf'
+      const scale = Number(params.get('scale') || 1.2)
+      const pageLimit = Number(params.get('pages') || 2)
+      const status = document.getElementById('status')
+      const stack = document.getElementById('stack')
+      const log = []
+      const say = (line) => { log.push(line); status.textContent = log.join('\n') }
+
+      try {
+        const pdfjs = await import('/vendor/pdf.min.mjs')
+        pdfjs.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.min.mjs'
+        say(`pdfjs ${pdfjs.version} loaded`)
+
+        const doc = await pdfjs.getDocument({ url: pdfUrl }).promise
+        say(`pages: ${doc.numPages}`)
+
+        const report = { pages: doc.numPages, rendered: [], spans: 0, firstText: '', canvasInk: 0 }
+        const dpr = Math.min(devicePixelRatio || 1, 2)
+        const n = Math.min(pageLimit, doc.numPages)
+
+        for (let i = 1; i <= n; i += 1) {
+          const page = await doc.getPage(i)
+          const viewport = page.getViewport({ scale })
+          const box = document.createElement('div')
+          box.className = 'zr-page-box'
+          box.dataset.page = String(i)
+          box.dataset.ptW = String(viewport.width / scale)
+          box.dataset.ptH = String(viewport.height / scale)
+          box.style.width = `${viewport.width}px`
+          box.style.height = `${viewport.height}px`
+          const canvas = document.createElement('canvas')
+          canvas.className = 'zr-page-canvas'
+          canvas.width = Math.floor(viewport.width * dpr)
+          canvas.height = Math.floor(viewport.height * dpr)
+          canvas.style.width = `${viewport.width}px`
+          canvas.style.height = `${viewport.height}px`
+          const textLayer = document.createElement('div')
+          textLayer.className = 'textLayer'
+          textLayer.style.setProperty('--total-scale-factor', String(viewport.scale))
+          box.append(canvas, textLayer)
+          stack.append(box)
+
+          const ctx = canvas.getContext('2d', { alpha: false })
+          await page.render({ canvas, canvasContext: ctx, viewport, transform: [dpr, 0, 0, dpr, 0, 0] }).promise
+
+          const layer = new pdfjs.TextLayer({
+            textContentSource: page.streamTextContent({ includeMarkedContent: true, disableNormalization: true }),
+            container: textLayer,
+            viewport,
+          })
+          await layer.render()
+
+          // 断言 1：文本层有 span；2：span 有文本；3：span 落在页面盒内
+          const spans = [...textLayer.querySelectorAll('span')]
+          const firstWithText = spans.find((s) => (s.textContent || '').trim().length > 2)
+          const rect = firstWithText?.getBoundingClientRect()
+          const boxRect = box.getBoundingClientRect()
+          const inside = rect
+            ? rect.left >= boxRect.left - 2 && rect.right <= boxRect.right + 4 && rect.top >= boxRect.top - 2 && rect.bottom <= boxRect.bottom + 4
+            : false
+
+          // 断言 4：画布真的画了东西（非全白）
+          const data = ctx.getImageData(0, 0, Math.min(canvas.width, 600), Math.min(canvas.height, 400)).data
+          let ink = 0
+          for (let p = 0; p < data.length; p += 4) {
+            if (data[p] < 240 || data[p + 1] < 240 || data[p + 2] < 240) ink += 1
+          }
+
+          report.rendered.push({ page: i, spans: spans.length, inside, ink, w: Math.round(viewport.width), h: Math.round(viewport.height) })
+          report.spans += spans.length
+          if (i === 1) {
+            report.firstText = (firstWithText?.textContent || '').slice(0, 60)
+            report.canvasInk = ink
+          }
+          say(`page ${i}: ${spans.length} spans, inside=${inside}, ink=${ink}`)
+        }
+
+        window.__harnessResult = report
+        say(`OK · ${JSON.stringify({ pages: report.pages, spans: report.spans, firstText: report.firstText })}`)
+
+        /* ---------- 选区几何验证：用真代码算归一化矩形 ---------- */
+        try {
+          const { readSelection } = await import('/lib/_test-selection.mjs')
+          const stackEl = document.getElementById('stack')
+          const firstBox = document.querySelector('.zr-page-box')
+          const spans = [...document.querySelectorAll('.zr-page-box .textLayer span')].filter(
+            (s) => (s.textContent || '').trim().length > 8,
+          )
+          const range = document.createRange()
+          range.setStart(spans[2].firstChild, 0)
+          range.setEnd(spans[4].firstChild, spans[4].firstChild.length)
+          const sel = window.getSelection()
+          sel.removeAllRanges()
+          sel.addRange(range)
+
+          const pages = readSelection(stackEl)?.pages ?? []
+          const rects = pages.flatMap((p) => p.rects)
+          const boxRect = firstBox.getBoundingClientRect()
+          const canvas = firstBox.querySelector('canvas')
+          const ctx2 = canvas.getContext('2d')
+          const dpr2 = Math.min(devicePixelRatio || 1, 2)
+
+          // 每个归一化矩形换算回像素后，必须压在墨迹上（证明坐标没错位）
+          const overlaps = rects.map((r) => {
+            const x = Math.round(boxRect.width * r.x * dpr2)
+            const y = Math.round(boxRect.height * r.y * dpr2)
+            const w = Math.max(2, Math.round(boxRect.width * r.w * dpr2))
+            const h = Math.max(2, Math.round(boxRect.height * r.h * dpr2))
+            const d = ctx2.getImageData(x, y, Math.min(w, 500), Math.min(h, 40)).data
+            let ink = 0
+            for (let i = 0; i < d.length; i += 4) if (d[i] < 200) ink++
+            return +(ink / (d.length / 4)).toFixed(3)
+          })
+          const insideAll = rects.every((r) => r.x >= 0 && r.y >= 0 && r.x + r.w <= 1.0001 && r.y + r.h <= 1.0001)
+          window.__selectionResult = {
+            pages: pages.map((p) => p.page),
+            rectCount: rects.length,
+            insideAll,
+            inkRatios: overlaps,
+          }
+          say(`selection: pages=${JSON.stringify(pages.map((p) => p.page))} rects=${rects.length} inside=${insideAll} ink=${overlaps.join('/')}`)
+        } catch (e) {
+          window.__selectionResult = { error: String((e && e.stack) || e) }
+          say('selection test FAILED: ' + ((e && e.message) || e))
+        }
+      } catch (e) {
+        window.__harnessResult = { error: String(e && e.stack || e) }
+        say('FAILED: ' + (e && e.message || e))
+      }
+    </script>
+  </body>
+</html>

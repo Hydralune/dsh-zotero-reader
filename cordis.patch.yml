@@ -1,0 +1,5 @@
+# dsh-zotero-reader bundle layer — 由 profile 的插件清单引用时生效。
+# name 是 npm 包名（经 profile 的 node_modules 解析），不是相对路径。
+- insert:
+    - id: dsh-zotero-reader
+      name: '@ggboy123/dsh-zotero-reader'

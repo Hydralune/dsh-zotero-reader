@@ -12,24 +12,27 @@ export function installNativeExplanation(context: { get(name: string): unknown }
       } | undefined
       const binding = sessions?.binding(sessionId)
       if (!binding || !conversation) throw new Error('当前会话不可用，请重新打开会话')
-      const files = [image ?? new File([quoteContents(parts)], quoteFilename(parts), { type: 'text/plain' })]
+      const sourceFile = new File([quoteContents(parts)], quoteFilename(parts), { type: 'text/plain' })
+      const files = image ? [image, sourceFile] : [sourceFile]
       const drafts = conversation.createDrafts(sessionId, files)
       let admitted = false
       try {
-        if (!image) {
+        {
           const deadline = Date.now() + 60_000
           while (true) {
             const uploads = conversation.fileUploads.getSnapshot()
             const states = drafts.map(draft => uploads[draft.id])
             if (states.some(state => state?.status === 'error')) throw new Error('引用内容上传失败，请重试')
-            if (states.every(state => state?.status === 'ready')) break
+            // Images are admitted inline by DSH and may have no file-upload entry.
+            // The textual source file must finish uploading before the request is admitted.
+            if (states[image ? 1 : 0]?.status === 'ready') break
             if (Date.now() >= deadline) throw new Error('引用内容上传超时，请重试')
             await new Promise(resolve => setTimeout(resolve, 100))
           }
         }
         if (sessions?.binding(sessionId) !== binding) throw new Error('会话已切换，请重新点击解释')
         const result = await conversation.sendSession(binding.session,
-          `请用中文解释《${parts.title || '当前文献'}》${parts.page ? `第 ${parts.page} 页` : ''}的这${image ? '张图片' : '段引用'}，说明其含义及在论文中的作用。`,
+          `请用中文解释《${parts.title || '当前文献'}》${parts.page ? `第 ${parts.page} 页` : ''}的这${image ? '张图片' : '段引用'}，说明其含义及在论文中的作用。附件来源说明含完整摘录、本地 PDF 路径和定位信息，请先读取该说明；需要更多上下文时优先读取本地 PDF，不要自行联网搜索这篇论文。`,
           drafts.map(draft => draft.id), 'queue')
         if (result.kind !== 'success') throw new Error('解释请求未发送成功，请检查对话中的错误提示')
         admitted = true

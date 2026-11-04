@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent, type RefObject } from 'react'
 import html2canvas from 'html2canvas'
 import type { ZoteroPaper } from '../api'
-import { explainInDsh, previewDshCapture, previewDshQuote, sendCaptureToDsh } from '../dshComposer'
+import { paperSource, explainInDsh, previewDshCapture, previewDshQuote, sendCaptureToDsh } from '../dshComposer'
 import { Icon } from '../components/Icon'
 import { CaptureToolbar } from './CaptureToolbar'
 import { visibleSelectionAnchor } from './selection-anchor'
+import { textCaptureContext } from './quote-context'
+import type { QuoteParts } from '../dshComposer'
 
 type Point = { x: number; y: number }
 type Region = { start: Point; end: Point }
@@ -59,7 +61,7 @@ export function TextCapture({ root, paper, onNotify }: {
 }) {
   const [geometry, setGeometry] = useState<{ viewport: DOMRect; x: number; y: number } | null>(null)
   const [region, setRegion] = useState<Region | null>(null)
-  const [image, setImage] = useState<{ blob: Promise<Blob>; page: number } | null>(null)
+  const [image, setImage] = useState<{ blob: Promise<Blob>; page: number; context: Pick<QuoteParts, 'locations' | 'context' | 'text'> } | null>(null)
   const [busy, setBusy] = useState(false)
   const overlay = useRef<HTMLDivElement | null>(null)
   const drag = useRef<{ id: number; start: Point } | null>(null)
@@ -69,7 +71,7 @@ export function TextCapture({ root, paper, onNotify }: {
   const clear = () => { stopDragFrame(); drag.current = null; setRegion(null); setImage(null) }
   useEffect(() => () => stopDragFrame(), [])
   useEffect(() => {
-    if (image) previewDshCapture({ title: paper.title, page: image.page, intent: 'quote' }, image.blob)
+    if (image) previewDshCapture({ source: paperSource(paper), title: paper.title, page: image.page, ...image.context, intent: 'quote' }, image.blob)
     return () => previewDshQuote(null)
   }, [image, paper])
   useEffect(() => {
@@ -123,10 +125,10 @@ export function TextCapture({ root, paper, onNotify }: {
     try {
       const blob = await image.blob
       if (action === 'explain') {
-        await explainInDsh({ title: paper.title, page: image.page, intent: 'ask' }, new File([blob], filename, { type: 'image/png' }))
+        await explainInDsh({ source: paperSource(paper), title: paper.title, page: image.page, ...image.context, intent: 'ask' }, new File([blob], filename, { type: 'image/png' }))
         onNotify('解释请求已发送'); clear()
       } else if (action === 'ask') {
-        const accepted = sendCaptureToDsh({ title: paper.title, page: image.page, intent: 'ask' }, new File([blob], filename, { type: 'image/png' }))
+        const accepted = sendCaptureToDsh({ source: paperSource(paper), title: paper.title, page: image.page, ...image.context, intent: 'ask' }, new File([blob], filename, { type: 'image/png' }))
         onNotify(accepted ? '截图已附加，可输入问题或直接发送解释' : '无法附加截图，请先打开会话，或下载后添加')
         if (accepted) clear()
       } else if (action === 'copy') {
@@ -180,7 +182,9 @@ export function TextCapture({ root, paper, onNotify }: {
         const blob = captureTextRegion(root.current, box)
         void blob.catch(() => {})
         setRegion(final)
-        setImage({ blob, page: Number(article?.dataset.textPage) || 1 })
+        const context = textCaptureContext(root.current, { left: viewport.left + box.left, top: viewport.top + box.top,
+          right: viewport.left + box.left + box.width, bottom: viewport.top + box.top + box.height })
+        setImage({ blob, page: Number(article?.dataset.textPage) || 1, context })
       }}>
       {box ? <div className="zr-capture-region" style={box} /> : null}
     </div>

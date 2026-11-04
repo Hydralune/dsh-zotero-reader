@@ -15,7 +15,7 @@ import {
 import { RichText } from './RichText'
 import { Icon } from '../components/Icon'
 import { openPdf, type RenderTask } from './pdf'
-import { explainInDsh, previewDshQuote, sendToDsh } from '../dshComposer'
+import { paperSource, explainInDsh, previewDshQuote, sendToDsh } from '../dshComposer'
 import { MediaMenu } from './MediaMenu'
 import { TextCapture } from './TextCapture'
 
@@ -23,6 +23,7 @@ import { SelectionToolbar } from './SelectionToolbar'
 import { MarkPopover } from './MarkPopover'
 import { anchorRange, selectedTextAnchors, textHighlightAPI } from './text-highlights'
 import { isScrollbarInteraction, visibleSelectionAnchor } from './selection-anchor'
+import { textSelectionContext } from './quote-context'
 
 /* ---------------- 块 ---------------- */
 
@@ -259,7 +260,7 @@ export function TextViewer({
   }
 
   useEffect(() => {
-    if (picked && pickedSource.current === `${paper.attachKey}/${paper.file}`) previewDshQuote({ title: paper.title, page: picked.page, text: picked.text, intent: 'quote' })
+    if (picked && pickedSource.current === `${paper.attachKey}/${paper.file}`) previewDshQuote({ source: paperSource(paper), title: paper.title, page: picked.page, text: picked.text, ...textSelectionContext(scroll.current, picked.anchors), intent: 'quote' })
   }, [picked, paper])
 
   useEffect(() => () => previewDshQuote(null), [])
@@ -274,7 +275,7 @@ export function TextViewer({
         if (!selection || selection.isCollapsed) return
         if (captureMode || !scroll.current?.contains(selection.anchorNode) || !scroll.current.contains(selection.focusNode)) return
         const element = selection.anchorNode?.parentElement?.closest<HTMLElement>('[data-text-page]')
-        previewDshQuote({ title: paper.title, page: Number(element?.dataset.textPage) || current || 1, text: selection.toString().trim(), intent: 'quote' })
+        previewDshQuote({ source: paperSource(paper), title: paper.title, page: Number(element?.dataset.textPage) || current || 1, text: selection.toString().trim(), ...textSelectionContext(scroll.current, selectedTextAnchors(scroll.current, selection.getRangeAt(0))), intent: 'quote' })
       })
     }
     document.addEventListener('selectionchange', clear)
@@ -388,7 +389,7 @@ export function TextViewer({
   }
   const askSelected = (intent: 'ask' | 'quote') => {
     if (!picked) return
-    const sent = sendToDsh({ title: paper.title, page: picked.page, text: picked.text, intent })
+    const sent = sendToDsh({ source: paperSource(paper), title: paper.title, page: picked.page, text: picked.text, ...textSelectionContext(scroll.current, picked.anchors), intent })
     onNotify(sent ? '引用已附加，可输入问题或直接发送解释' : '无法附加引用，请先打开会话')
     setPicked(null)
     window.getSelection()?.removeAllRanges()
@@ -647,7 +648,10 @@ export function TextViewer({
             const canvas = (event.target as Element).closest('.zr-txt-crop')?.querySelector('canvas')
             if (!canvas || !canvas.width || canvas.dataset.rendered !== 'true') return
             event.preventDefault(); event.stopPropagation()
+            window.clearTimeout(selectionTask.current)
+            window.getSelection()?.removeAllRanges()
             setPicked(null)
+            setMarkPopup(null)
             setMediaMenu({ x: event.clientX, y: event.clientY, canvas, page: Number(canvas.closest<HTMLElement>('[data-text-page]')?.dataset.textPage) || current || 1 })
           }}
           onScroll={() => { setMarkPopup(null) }}
@@ -699,6 +703,7 @@ export function TextViewer({
                   <div className="zr-txt-pair" key={block.id} id={`zr-block-${block.id}`}
                     data-located={located === block.id ? '' : undefined}
                     data-role={block.role}
+                    data-source-bbox={JSON.stringify(block.bbox)}
                     onDoubleClick={(event) => {
                       if (event.target instanceof Element && event.target.closest('button')) return
                       event.preventDefault()
@@ -728,7 +733,7 @@ export function TextViewer({
             return visibleSelectionAnchor(rects, root.getBoundingClientRect())
           }}
           onExplain={async () => {
-            try { await explainInDsh({ title: paper.title, page: picked.page, text: picked.text, intent: 'ask' }); setPicked(null); window.getSelection()?.removeAllRanges(); onNotify('解释请求已发送') }
+            try { await explainInDsh({ source: paperSource(paper), title: paper.title, page: picked.page, text: picked.text, ...textSelectionContext(scroll.current, picked.anchors), intent: 'ask' }); setPicked(null); window.getSelection()?.removeAllRanges(); onNotify('解释请求已发送') }
             catch (error) { onNotify((error as Error).message) }
           }}
           onQuote={() => askSelected('quote')}
@@ -754,7 +759,7 @@ export function TextViewer({
         <MarkPopover mark={{ ...markPopup.mark, rects: [] }} point={{ x: markPopup.x, y: markPopup.y }}
           onClose={() => setMarkPopup(null)}
           onAsk={async () => {
-            try { await explainInDsh({ title: paper.title, page: markPopup.mark.page, text: markPopup.mark.text, intent: 'ask' }); onNotify('解释请求已发送'); setMarkPopup(null) }
+            try { await explainInDsh({ source: paperSource(paper), title: paper.title, page: markPopup.mark.page, text: markPopup.mark.text, ...textSelectionContext(scroll.current, markPopup.mark.anchors), intent: 'ask' }); onNotify('解释请求已发送'); setMarkPopup(null) }
             catch (error) { onNotify((error as Error).message) }
           }}
           onPatch={(patch) => {

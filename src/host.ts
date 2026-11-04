@@ -267,6 +267,7 @@ export function registerRoutes(ctx: Context, config: PluginConfig = {}) {
           collectionIDs: item.collectionIDs,
           attachKey: attachment.key,
           file: attachment.filename,
+          filePath: attachment.filePath,
           variants,
         })
       }

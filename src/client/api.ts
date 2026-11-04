@@ -59,6 +59,8 @@ export interface ZoteroPaper {
   attachKey: string
   /** 附件文件名 */
   file: string
+  /** Zotero 实际解析出的本地 PDF 绝对路径（包含链接附件）。 */
+  filePath?: string
   /** 同目录下已存在的译文变体：<stem>-zh.pdf / -dual.pdf */
   variants: string[]
 }

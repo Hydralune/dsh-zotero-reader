@@ -30,7 +30,7 @@ import {
   type ZoteroPaper,
 } from './api'
 import { Icon } from './components/Icon'
-import { explainInDsh, previewDshCapture, previewDshQuote, sendCaptureToDsh, sendToDsh } from './dshComposer'
+import { paperSource, explainInDsh, previewDshCapture, previewDshQuote, sendCaptureToDsh, sendToDsh } from './dshComposer'
 import { QuotePreview } from './components/QuotePreview'
 import type { ReaderLocation } from './api'
 import { installStyles } from './theme'
@@ -423,7 +423,7 @@ export function ReaderPane() {
 
   const quoteSelection = useCallback(() => {
     if (!sel || !paper) return
-    const ok = sendToDsh({ title: paper.title, page: sel.pages[0].page, text: sel.text, intent: 'quote' })
+    const ok = sendToDsh({ source: paperSource(paper, variant), title: paper.title, page: sel.pages[0].page, text: sel.text, locations: sel.pages, intent: 'quote' })
     say(ok ? '引用已附加，可输入问题或直接发送解释' : '先打开一个会话')
     setSel(null)
     clearSelection()
@@ -431,17 +431,17 @@ export function ReaderPane() {
 
   useEffect(() => {
     if (view !== 'pdf' || captureMode) return
-    if (paper && preview?.text && pdfSelectionSource.current === `${paper.attachKey}/${paper.file}`) previewDshQuote({ title: paper.title, page: preview.pages[0]?.page, text: preview.text, intent: 'quote' })
-  }, [paper, view, preview, captureMode])
+    if (paper && preview?.text && pdfSelectionSource.current === `${paper.attachKey}/${paper.file}`) previewDshQuote({ source: paperSource(paper, variant), title: paper.title, page: preview.pages[0]?.page, text: preview.text, locations: preview.pages, intent: 'quote' })
+  }, [paper, view, preview, captureMode, variant])
 
   useEffect(() => () => previewDshQuote(null), [paper?.attachKey, paper?.file, view])
 
   useEffect(() => {
     if (view !== 'pdf' || !captureMode) return
-    if (paper && capture) previewDshCapture({ title: paper.title, page: capture.page, intent: 'quote' }, capture.image)
+    if (paper && capture) previewDshCapture({ source: paperSource(paper, variant), title: paper.title, page: capture.page, locations: capture.locations, text: capture.text, context: capture.context, intent: 'quote' }, capture.image)
     else previewDshQuote(null)
     return () => previewDshQuote(null)
-  }, [paper, view, captureMode, capture])
+  }, [paper, view, captureMode, capture, variant])
 
   /* ---------------- 快捷键 ---------------- */
   useEffect(() => {
@@ -494,7 +494,7 @@ export function ReaderPane() {
   }
   const askCapture = async (item: PdfCapture) => {
     const image = new File([await item.image], captureFilename(item.page), { type: 'image/png' })
-    if (sendCaptureToDsh({ title: paper?.title, page: item.page, intent: 'ask' }, image)) {
+    if (sendCaptureToDsh({ source: paperSource(paper, variant), title: paper?.title, page: item.page, locations: item.locations, text: item.text, context: item.context, intent: 'ask' }, image)) {
       say('截图已附到对话草稿')
     } else {
       try {
@@ -935,7 +935,7 @@ export function ReaderPane() {
           <div className="zr-selbar-row">
             <button className="zr-selbar-btn" title="解释：直接发送给 AI" aria-label="解释截图" onClick={() => {
               void (async () => {
-                try { await explainInDsh({ title: paper?.title, page: capture.page, intent: 'ask' }, new File([await capture.image], captureFilename(capture.page), { type: 'image/png' })); say('解释请求已发送'); setCapture(null) }
+                try { await explainInDsh({ source: paperSource(paper, variant), title: paper?.title, page: capture.page, locations: capture.locations, text: capture.text, context: capture.context, intent: 'ask' }, new File([await capture.image], captureFilename(capture.page), { type: 'image/png' })); say('解释请求已发送'); setCapture(null) }
                 catch (error) { say((error as Error).message) }
               })()
             }}><Icon name="sparkle" /></button>
@@ -967,7 +967,7 @@ export function ReaderPane() {
           }}
           onExplain={async () => {
             if (!paper) return
-            try { await explainInDsh({ title: paper.title, page: sel.pages[0].page, text: sel.text, intent: 'ask' }); say('解释请求已发送'); setSel(null); clearSelection() }
+            try { await explainInDsh({ source: paperSource(paper, variant), title: paper.title, page: sel.pages[0].page, text: sel.text, locations: sel.pages, intent: 'ask' }); say('解释请求已发送'); setSel(null); clearSelection() }
             catch (error) { say((error as Error).message) }
           }}
           onTranslate={() => void translateSelection()}
@@ -1035,7 +1035,7 @@ export function ReaderPane() {
           }}
           onAsk={async () => {
             if (!paper) return
-            try { await explainInDsh({ title: paper.title, page: markPop.mark.page, text: markPop.mark.text, intent: 'ask' }); say('解释请求已发送'); setMarkPop(null) }
+            try { await explainInDsh({ source: paperSource(paper, variant), title: paper.title, page: markPop.mark.page, text: markPop.mark.text, locations: [{ page: markPop.mark.page, rects: markPop.mark.rects }], intent: 'ask' }); say('解释请求已发送'); setMarkPop(null) }
             catch (error) { say((error as Error).message) }
           }}
           onClose={() => setMarkPop(null)}

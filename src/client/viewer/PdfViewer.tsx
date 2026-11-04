@@ -38,6 +38,9 @@ export interface PdfCapture {
   page: number
   image: Promise<Blob>
   getAnchor: () => SelectionAnchor | null
+  locations: Array<{ page: number; rects: Array<{ x: number; y: number; w: number; h: number }> }>
+  text: string
+  context: string
 }
 
 interface CapturePoint { x: number; y: number }
@@ -491,7 +494,17 @@ export const PdfViewer = forwardRef<PdfViewerHandle, PdfViewerProps>(function Pd
     )
     void image.catch(() => {})
     setRegion(final)
-    onCapture?.({ page: final.page, image, getAnchor: () => {
+    const spans = [...active.box.querySelectorAll<HTMLElement>('.textLayer span')]
+    const selectedText = spans.filter(span => {
+      const rect = span.getBoundingClientRect()
+      return rect.right > box.left + left * box.width && rect.left < box.left + (left + width) * box.width &&
+        rect.bottom > box.top + top * box.height && rect.top < box.top + (top + height) * box.height
+    }).map(span => span.textContent).join(' ')
+    onCapture?.({ page: final.page, image,
+      locations: [{ page: final.page, rects: [{ x: left, y: top, w: width, h: height }] }],
+      text: selectedText || '截图区域没有可提取文字，请读取随附截图。',
+      context: `PDF 第 ${final.page} 页可提取的页面文本（含选框外内容）：\n${spans.map(span => span.textContent).join(' ')}`,
+      getAnchor: () => {
       const root = scrollRef.current
       const page = boxRefs.current.get(final.page)
       if (!root || !page) return null

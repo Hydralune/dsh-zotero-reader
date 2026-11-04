@@ -580,9 +580,12 @@ export const CSS = String.raw`
   .zr-txt-pair[data-located]::after,.zr-pdf-locator{ animation-timing-function: step-end; }
 }
 .zr-text-tools{ gap: 4px; }
-.zr-text-result{ width: min(320px, calc(100vw - 16px)); max-height: 160px; overflow: auto; padding: 9px;
-  gap: 8px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.zr-text-result > div{ flex: 1; min-width: 0; }
+.zr-translation-card{ position: fixed; z-index: 80; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid var(--zr-border); border-radius: 14px; background: var(--zr-overlay); color: var(--zr-text); box-shadow: 0 8px 30px #15202e20; }
+.zr-translation-card-header{ display: flex; align-items: center; flex: none; gap: 7px; padding: 9px 10px 6px 15px; color: var(--zr-text-2); font: 500 11.5px/1.4 'Segoe UI','Microsoft YaHei',sans-serif; }
+.zr-translation-card-header .zr-btn{ margin-left: auto; width: 26px; height: 26px; min-height: 26px; border-radius: 8px; color: var(--zr-text-2); }
+.zr-translation-card-body{ min-height: 0; overflow: auto; scrollbar-width: thin; padding: 0 15px 15px; font: 14px/1.8 'Segoe UI','Microsoft YaHei',sans-serif;
+  white-space: pre-wrap; overflow-wrap: anywhere; text-align: start; }
 .zr-txt-pair ::selection{ background: #3e8ee438; }
 
 .zr-txt-h1{ font-size: calc(21px * var(--zr-text-scale)); }

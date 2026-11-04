@@ -24,6 +24,7 @@ import { MarkPopover } from './MarkPopover'
 import { anchorRange, selectedTextAnchors, textHighlightAPI } from './text-highlights'
 import { isScrollbarInteraction, visibleSelectionAnchor } from './selection-anchor'
 import { textSelectionContext } from './quote-context'
+import { TranslationCard } from './TranslationCard'
 
 /* ---------------- 块 ---------------- */
 
@@ -776,10 +777,7 @@ export function TextViewer({
           }} />
       ) : null}
       {translation ? (
-        <div className="zr-selbar zr-text-result" style={{ left: Math.min(translation.x, Math.max(8, window.innerWidth - 336)), top: Math.min(translation.y, window.innerHeight - 180) }}>
-          <div>{translation.text}</div>
-          <button className="zr-btn zr-btn-icon" aria-label="关闭翻译" onClick={() => setTranslation(null)}><Icon name="close" /></button>
-        </div>
+        <TranslationCard {...translation} loading={translation.text === '翻译中…'} onClose={() => setTranslation(null)} />
       ) : null}
     </div>
   )

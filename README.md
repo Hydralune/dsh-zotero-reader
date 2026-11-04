@@ -33,7 +33,7 @@
 支持命令行的 DSH 安装也可使用：
 
 ```bash
-dsh plugin --profile desktop add "https://github.com/Hydralune/dsh-zotero-reader/releases/download/v0.3.0/ggboy123-dsh-zotero-reader-0.3.0.tgz"
+dsh plugin --profile desktop add "https://github.com/Hydralune/dsh-zotero-reader/releases/download/v0.4.0/ggboy123-dsh-zotero-reader-0.4.0.tgz"
 ```
 
 Web profile 将 `desktop` 改为 `web`。安装后检查启用状态，并重启相应 profile。

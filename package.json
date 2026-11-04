@@ -1,6 +1,6 @@
 {
   "name": "@ggboy123/dsh-zotero-reader",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "DeepSeek Harness 的 Zotero 论文阅读器：PDF/文本双视图、双击定位跳转、划词与截图解释、独立高亮和逐页翻译。",
   "license": "MIT",
   "type": "module",

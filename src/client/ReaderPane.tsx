@@ -31,6 +31,7 @@ import {
 } from './api'
 import { Icon } from './components/Icon'
 import { PaperSummary } from './components/PaperSummary'
+import { TranslationCard } from './viewer/TranslationCard'
 import { paperSource, explainInDsh, previewDshCapture, previewDshQuote, sendCaptureToDsh, sendToDsh } from './dshComposer'
 import { QuotePreview } from './components/QuotePreview'
 import type { ReaderLocation } from './api'
@@ -982,32 +983,7 @@ export function ReaderPane() {
 
       {/* 划词翻译卡片 */}
       {translateCard ? (
-        <div
-          className="zr-selbar"
-          style={{
-            left: Math.min(Math.max(8, translateCard.x - 160), window.innerWidth - 328),
-            top: Math.min(translateCard.y, window.innerHeight - 200),
-            width: 320,
-            padding: '8px 10px',
-            display: 'block',
-          }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <div className="zr-row" style={{ marginBottom: 6 }}>
-            <Icon name="translate" />
-            <span className="zr-muted" style={{ fontSize: 11.5 }}>划词翻译</span>
-            <button
-              className="zr-btn zr-btn-icon"
-              style={{ marginLeft: 'auto' }}
-              onClick={() => setTranslateCard(null)}
-            >
-              <Icon name="close" />
-            </button>
-          </div>
-          <div style={{ fontSize: 12.5, lineHeight: 1.6, maxHeight: 200, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
-            {translateCard.loading ? '翻译中…' : translateCard.text}
-          </div>
-        </div>
+        <TranslationCard {...translateCard} x={translateCard.x - 180} onClose={() => setTranslateCard(null)} />
       ) : null}
 
       {/* 高亮浮层 */}
